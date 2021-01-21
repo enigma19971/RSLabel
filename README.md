@@ -7,18 +7,9 @@
 
 
 ##	How to Run it
-this project is based on **labeme** ,PyQT5 and pygdal.   so the python3.6 env must be download and installed in the current folder.
-you can using annaconda to download the python3.6 env and install PyQT5, gdal youself, and put it in the current folder
-![Python Env](https://github.com/enigma19971/RSLabel/blob/master/python.PNG "like that")
-
-we provide a package 
-
-[python3.7 + PyGdal + PyQT5](https://pan.baidu.com/s/1yZVESoRWEvgQP1MO1l8xiA),the extraction code is **3crv**
-
-After you download it and unzip to your root folder. you can run the RSLabel.exe
-
+this project is based on **labeme** ,PyQT5 and pygdal.   so the python3.7 env must be download and installed in the current folder.
 or you can download the binary from here
-[rslabel-install](https://pan.baidu.com/s/1fF3hUzCLY66XrXVFHENQEQ )   the extraction code is **lpps**
+[rslabel-install](https://pan.baidu.com/s/1ScK4unESHXtp4U6j1pVYxg)   the extraction code is **0ryf**
 
 ##  get started!
 - build overviews for images.  
