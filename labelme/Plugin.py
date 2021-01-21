@@ -58,6 +58,7 @@ class LabelmePlugin:
         self.grid_color = None
         self.grid_size = None 
         self.shortName = False 
+        self.labelFile = None
 
         # Whether we need to save or not.
         self.dirty = False
@@ -523,14 +524,13 @@ class LabelmePlugin:
             print('*save File')
             if self.labelFile:
                 # DL20180323 - overwrite when in directory
-                print('* has label file')
                 self._saveFile(self.labelFile.filename)
             elif self.output_file:
-                print('has output file')
+                print('[python] <saveFile> has output file',self.output_file)
                 self._saveFile(self.output_file)
                 self.close()
             else:
-                print('*call _saveFile')
+                print('[python] <saveFile> call _saveFile')
                 self._saveFile(self.saveFileDialog())
 
     #add toolbar the main window
@@ -592,6 +592,7 @@ class LabelmePlugin:
         dlg.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
         dlg.setOption(QtWidgets.QFileDialog.DontConfirmOverwrite, False)
         dlg.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, False)
+        print('[python]: <saveFileDialog> self.filename is ' ,self.filename)
         basename = osp.splitext(self.filename)[0]
         if self.output_dir:
             default_labelfile_name = osp.join(
@@ -788,7 +789,7 @@ class LabelmePlugin:
             self.fileListWidget.setCurrentRow(self.imageList.index(filename))
             self.fileListWidget.repaint()
             return
-        print('*resetState')
+        print('[python] resetState')
         self.resetState()
         if filename is None:
             filename = self.settings.value('filename', '')
@@ -1886,8 +1887,15 @@ class LabelmePlugin:
                 os.makedirs(osp.join(self.exportOutDir, 'AnnotationsVisualization'))
             except Exception:
                 print('*Creating dataset failed:', self.exportOutDir)
-        else:
+        elif self.export_dialog.radCOCO.isChecked():
             os.makedirs(osp.join(self.exportOutDir, 'Annotations'))
+        elif self.export_dialog.radYOLO.isChecked():
+            try:
+                os.makedirs(osp.join(self.exportOutDir, 'images'))
+                os.makedirs(osp.join(self.exportOutDir, 'labels'))
+                os.makedirs(osp.join(self.exportOutDir, 'AnnotationsVisualization'))
+            except Exception:
+                print('*Creating dataset failed:', self.exportOutDir)
 
         self.isTiled = False
         if(self.export_dialog.chkTiled.isChecked()):  #need to split to tiles
@@ -1913,8 +1921,10 @@ class LabelmePlugin:
 
         if(self.export_dialog.radVOC.isChecked()):
             self.exportAsVOC(dir)
-        else:
+        elif self.export_dialog.radCOCO.isChecked():
             self.exportAsCOCO(dir)
+        elif self.export_dialog.radYOLO.isChecked():
+            self.exportAsYOLO(dir)
         mb = QtWidgets.QMessageBox
         msg =  '导出数据集成功,可查看数据集'
         answer = mb.information(self.mainWnd,
@@ -2136,6 +2146,139 @@ class LabelmePlugin:
             self.iface.setProgress((int)((i+1)*100.0/jsonNum))
             i = i + 1
 
+    def exportAsYOLO(self, dir):
+        print('\n\n\n*-------------------------------------export as YOLO--------------------------------------------')
+        class_names = []
+        class_name_to_id = {}
+        labels_file = osp.join(here, 'labels.txt')
+        print('*labels file:',labels_file)
+        ##########     
+        for i, line in enumerate(open(labels_file).readlines()):
+            class_id = i - 1  # starts with -1
+            class_name = line.strip()
+            class_name_to_id[class_name] = class_id
+            if class_id == -1:
+                assert class_name == '__ignore__'
+                continue
+            elif class_id == 0:
+                assert class_name == '_background_'
+            class_names.append(class_name)
+        class_names = tuple(class_names)
+        print('*class_names:', class_names)
+        out_class_names_file = osp.join(self.exportOutDir, 'class_names.txt')
+        with open(out_class_names_file, 'w') as f:
+            f.writelines('\n'.join(class_names))
+        print('*Saved class_names:', out_class_names_file)
+        #########
+        jsons = glob.glob(dir + '/**/*.json', recursive=True)
+        print('*export dir: {}'.format(dir))
+        jsonNum = len(jsons)
+        for i, label_file in enumerate(jsons):
+            with open(label_file) as f:
+                data = json.load(f)  #data is json file's content
+                #get geo trans parameters from json file
+                otherData = {}
+                keys = [
+                    'imageData',
+                    'imagePath',
+                    'lineColor',
+                    'fillColor',
+                    'shapes',  # polygonal annotations
+                    'flags',   # image level flags
+                    'imageHeight',
+                    'imageWidth',]
+                for key, value in data.items():
+                    if key not in keys:
+                        otherData[key] = value
+                geoTrans = otherData['geoTrans']
+            #make dirs for yolo
+            base = osp.splitext(osp.basename(label_file))[0]
+            out_img_file = osp.join(
+                self.exportOutDir, 'images', data['imagePath'])
+            out_txt_file = osp.join(
+                self.exportOutDir, 'labels', base + '.txt')
+            out_viz_file = osp.join(
+                self.exportOutDir, 'AnnotationsVisualization', base + '.tif')
+            # get the image file to copy to ...
+            img_file = osp.join(osp.dirname(label_file), data['imagePath'])
+            print('*export',img_file)
+            print('*to', out_img_file)
+            shape = gdalCopy(img_file, out_img_file)
+            self.statusBar().showMessage('正在拷贝文件{}'.format(img_file))
+            height, width = shape[:2]
+            yololines = []
+            print('*VOC image, size: width {}, height {}, raster {}'.format(shape[0],shape[1],shape[2]))
+            bboxes = []
+            labels = []
+            colors = [] 
+            unkown_class_type = False 
+            for shape in data['shapes']:
+                if shape['shape_type'] != 'rectangle' \
+                    and shape['shape_type'] != 'polygon' \
+                    and shape['shape_type'] != 'slantRectangle':
+                    print('*Skipping shape: label={label}, shape_type={shape_type}'
+                        .format(**shape))
+                    continue
+                class_name = shape['label']
+                print('*class_name', class_name)
+                try:
+                    class_id = class_names.index(class_name)
+                except Exception as e:
+                    unkown_class_type = True
+                    break
+                if(shape['shape_type'] == 'rectangle'):
+                    (xmin_, ymin_), (xmax_, ymax_) = shape['points']
+                elif(shape['shape_type'] == 'polygon'):
+                    (xmin_, ymin_), (xmax_, ymax_) = boundingBox(shape['points'])
+                elif(shape['shape_type'] == 'slantRectangle'):
+                    (xmin_, ymin_), (xmax_, ymax_) = boundingBox(shape['points'])
+
+                #convert to image coordination here
+                xmin = (xmin_ - geoTrans[0]) / geoTrans[1]
+                ymin = (geoTrans[3] - ymin_) / -geoTrans[5]
+                xmax = (xmax_ - geoTrans[0]) / geoTrans[1]
+                ymax = (geoTrans[3] - ymax_) / -geoTrans[5]
+                if xmax < xmin:
+                    xmax, xmin = xmin, xmax
+                if ymax < ymin:
+                    ymax, ymin = ymin, ymax
+
+                bboxes.append(QRect(QPoint(xmin,ymin),QPoint(xmax,ymax))) 
+                labels.append(class_id)
+                xc = (xmax + xmin) / 2 / width
+                yc = (ymax + ymin) / 2 / height
+                w = (xmax - xmin) / width
+                h = (ymax - ymin) / height
+                yololines.append(' '.join(map(str, (class_id, xc, yc, w, h))))
+            if (unkown_class_type):
+                break  #next json file
+            captions = [class_names[l] for l in labels]
+            colormap = labelme.utils.label_colormap(255)
+            for label in labels:
+                color = (colormap[label]*255).astype(np.uint8)
+                colors.append(QColor(*color))
+            print('*captions {},  labels {},  colors {}'.format(captions, labels, colors))
+           
+            if(captions and self.isTiled):
+                self.statusBar().showMessage('正在给文件{}画实例'.format(img_file))
+                (pathName,extension) = os.path.splitext(img_file)
+                omd = pathName + '.omd'
+                if(not osp.exists(omd)):
+                    img = read(img_file)
+                    del img
+                self.iface.draw_instances(img_file, out_viz_file, bboxes, colors, captions)  
+
+            if(not self.isTiled):
+                readme = osp.join(
+                    self.exportOutDir, 'AnnotationsVisualization', 'readme.txt')
+                with open(readme,'w') as f:
+                    f.write('未分块的输入文件不支持draw instance操作')
+            #write txt
+            with open(out_txt_file, 'w') as f:
+                f.write('\n'.join(yololines))
+            self.iface.setProgress((int)((i+1)*100.0/jsonNum))
+            i = i + 1
+
     def map2img(self, x, y):
         u = (x - self.geoTrans[0]) / self.geoTrans[1]
         v = (self.geoTrans[3] - y) / -self.geoTrans[5]
@@ -2151,6 +2294,85 @@ class LabelmePlugin:
         v = self.geoTrans[3] + self.geoTrans[5]*p[1]
         return u ,v 
 
+    def loadJson(self, json_file):
+        filename = json_file
+        self.status("Loading %s..." % osp.basename(str(filename)))
+        label_file = osp.splitext(filename)[0] + '_label.json'
+        #if find the label file for the image
+        if QtCore.QFile.exists(label_file) and \
+                LabelFile.isLabelFile(label_file):
+            try:
+                self.labelFile = LabelFile(label_file)
+            except LabelFileError as e:
+                self.errorMessage(
+                    '打开文件时发生错误',
+                    "<p><b>%s</b></p>"
+                    "<p>确保 <i>%s</i> 是有效的标记文件"
+                    % (e, label_file))
+                self.status("读文件错误 %s" % label_file)
+                return False
+            self.imagePath = osp.join(
+                osp.dirname(label_file),
+                self.labelFile.imagePath,
+            )
+            self.lineColor = QtGui.QColor(*self.labelFile.lineColor)
+            self.fillColor = QtGui.QColor(*self.labelFile.fillColor)
+            self.otherData = self.labelFile.otherData
+            self.geoTrans = self.otherData['geoTrans']
+        
+        # no matter there has a labelfile. we need to read file here.  some raster must 
+        # get statistics
+        #parse the json file
+        try:
+            with open(json_file, 'r') as fp:
+                data = json.load(fp)  #
+                self.imagePath = json_file 
+                self.imageWidth = data['width']
+                self.imageHeight = data['height']
+                hasGeo = data['hasGeo']
+                if(hasGeo):
+                    self.geoTrans = data['geoTrans']
+                else:
+                    self.geoTrans = [0,1,0, self.imageHeight, 0, -1]
+                self.otherData['geoTrans'] = self.geoTrans
+        except :
+            formats = ['*.{}'.format(fmt.data().decode())
+                    for fmt in QtGui.QImageReader.supportedImageFormats()]
+            self.errorMessage(
+                'Error opening file',
+                '<p>Make sure <i>{0}</i> is a valid image file.<br/>'
+                'Supported image formats: {1}</p>'
+                .format(filename, ','.join(formats)))
+            self.status("Error reading %s" % filename)
+            return False
+            
+        self.filename = filename
+        if self._config['keep_prev']:
+            prev_shapes = self.canvas.shapes
+        
+        # to display the image
+        print('[python] clear shape')
+        self.editor.clearShapes()
+        self.iface.reset() #
+        if self._config['flags']:
+            self.loadFlags({k: False for k in self._config['flags']})
+        if self._config['keep_prev']:
+            self.loadShapes(prev_shapes)
+            print('[python] load shapes prev ~!~')
+        if self.labelFile:
+            self.loadLabels(self.labelFile.shapes) #his shapes is not labelmeShape
+            if self.labelFile.flags is not None:
+                self.loadFlags(self.labelFile.flags)
+        else:
+            print('[python] the labelFile is None')
+
+        self.setClean()
+        print('* call iface to openFile')
+        self.iface.openFile(self.filename)
+        self.addRecentFile(self.filename)
+        self.toggleActions(True)
+        self.status("加载 %s" % osp.basename(str(filename)))
+        return True 
 ########################################################################################################
 #                                          GDAL                                        
 ########################################################################################################
