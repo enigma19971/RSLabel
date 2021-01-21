@@ -49,7 +49,7 @@ this tool is very convinient to label object with an angle. look that
 ![](https://github.com/enigma19971/RSLabel/blob/master/slantRect.PNG "build overview")
 
 ##	export the result as VOC , COCO or yolo format
-you can export the result as VOC or COCO dataset's format , and use tensorflow or other deep learning framework to train the data.
+you can export the result as VOC ,COCO or yolo dataset's format , and use tensorflow or other deep learning framework to train the data.
 ![](https://github.com/enigma19971/RSLabel/blob/master/exportas.PNG "export as VOC")
 
 
