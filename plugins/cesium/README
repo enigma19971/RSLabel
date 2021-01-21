@@ -1,7 +1,0 @@
-添加toolbar 步骤
-1、 选择图标放在icon目录下
-2、 编辑resources.qrc
-3、 open x64 vs2015 cmd window
-4、 cd C:\own\rslabel-build\cesium-version\bin\release\Python\plugins\cesium
-5.  execute compile_ui.bat 
-6.  copy gui\generated\resources_rc.py to C:\own\rslabel-build\cesium-version\bin\release\Python\plugins\cesium

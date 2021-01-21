@@ -1,9 +1,0 @@
-<RCC>
-  <qresource>
-    <file>icons/Cesium_Logo_Flat.png</file>
-    <file>icons/about.png</file>
-	<file>icons/info.png</file>
-	<file>icons/toEarth.png</file>
-    <file>resources/viewer.html</file>
-  </qresource>
-</RCC>
