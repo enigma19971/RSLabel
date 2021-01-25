@@ -141,6 +141,9 @@ def loadPlugin(packageName):
         showException(sys.exc_type, sys.exc_value, sys.exc_traceback, msg)
         return False
 
+def openFile(filename):
+    #这个函数是在c++里面调用的   2021.1.23
+    plugins['labelme'].loadRemoteFile(filename)
 
 def startPlugin(packageName):
     """ initialize the plugin """
@@ -156,6 +159,7 @@ def startPlugin(packageName):
     # create an instance of the plugin
     try:
         plugins[packageName] = package.classFactory(iface)
+        print('*load the plugin {}, successfully'.format(packageName))
         print('*here')
     except Exception as e:
         print('*load the plugin {}, failed'.format(packageName))

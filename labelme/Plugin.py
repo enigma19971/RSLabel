@@ -24,6 +24,7 @@ import os.path as osp
 import yaml
 import gdal
 import math
+import zmq
 from . import get_config
 from rslabel.gui import qtMouseListener
 from rslabel.gui import LabelmeEditor
@@ -69,6 +70,12 @@ class LabelmePlugin:
         self._noSelectionSlot = False
         self.imageWidth = 0
         self.imageHeight = 0
+        self.imageData = None
+        self.logger = open('rslabel.log', 'w') 
+        self.context = zmq.Context()
+        self.socket = self.context.socket(zmq.REQ)
+        addr = "tcp://127.0.0.1:7777"
+        self.socket.connect(addr)
 
 
 
@@ -134,6 +141,7 @@ class LabelmePlugin:
         
         self.statusBar().showMessage('%s started.' % __appname__)
         self.statusBar().show()
+        #self.loadRemoteFile('16.tif')
       
     def fileSearchChanged(self):
         self.importDirImages(
@@ -309,18 +317,18 @@ class LabelmePlugin:
 
     def loadLabels(self, shapes):
         s = []
-        for label, points, line_color, fill_color, shape_type, probability in shapes:
-            shape = LabelmeShape(label, shape_type)
-            shape.setProbability(probability)
-            for x, y in points:
-                print('*({},{})'.format(x,y))
+        #for label, points, line_color, fill_color, shape_type, probability in shapes:
+        for ss in shapes:
+            shape = LabelmeShape(ss['label'], ss['shape_type'])
+            shape.setProbability(ss['probability'])
+            for x, y in ss['points']:
                 shape.addPoint(QtCore.QPointF(x, y))
             shape.close()
             s.append(shape)
-            if line_color:
-                shape.line_color = QtGui.QColor(*line_color)
-            if fill_color:
-                shape.fill_color = QtGui.QColor(*fill_color)
+            if ss['line_color']:
+                shape.line_color = QtGui.QColor(*ss['line_color'])
+            if ss['fill_color']:
+                shape.fill_color = QtGui.QColor(*ss['fill_color'])
         self.loadShapes(s)
 
     #*
@@ -525,6 +533,7 @@ class LabelmePlugin:
             if self.labelFile:
                 # DL20180323 - overwrite when in directory
                 self._saveFile(self.labelFile.filename)
+                print('[python] <saveFile> has label file',self.labelFile.filename)
             elif self.output_file:
                 print('[python] <saveFile> has output file',self.output_file)
                 self._saveFile(self.output_file)
@@ -801,14 +810,23 @@ class LabelmePlugin:
             return False
         # assumes same name, but json extension
         self.status("Loading %s..." % osp.basename(str(filename)))
-        label_file = osp.splitext(filename)[0] + '.json'
-        if self.output_dir:
-            label_file = osp.join(self.output_dir, label_file)
+        label_file = None
+        mode = 'tain'
+        label_file_train = osp.splitext(filename)[0] + '.json'
+        label_file_infer = osp.splitext(filename)[0] + '_infer.json'
+        if QtCore.QFile.exists(label_file_infer) and \
+                LabelFile.isLabelFile(label_file_infer):
+                label_file = label_file_infer
+        elif QtCore.QFile.exists(label_file_train) and \
+                LabelFile.isLabelFile(label_file_train):
+                label_file = label_file_train
+
         #if find the label file for the image
-        if QtCore.QFile.exists(label_file) and \
-                LabelFile.isLabelFile(label_file):
+        if label_file:
+            if self.output_dir:
+                label_file = osp.join(self.output_dir, label_file)
             try:
-                self.labelFile = LabelFile(label_file)
+                self.labelFile = LabelFile(label_file,mode)
             except LabelFileError as e:
                 self.errorMessage(
                     '打开文件时发生错误',
@@ -879,6 +897,13 @@ class LabelmePlugin:
         self.toggleActions(True)
         self.status("加载 %s" % osp.basename(str(filename)))
         return True 
+
+    def loadRemoteFile(self, filename):
+        #label remote file by zmq 2021.1.23
+        print('[rslabel] <loadRemoteFile>', filename)
+        self.socket.send_string('GetFile:'+filename)
+        msg = self.socket.recv()
+        return
 
     def setClean(self):
         self.dirty = False
@@ -2441,7 +2466,6 @@ def my_basename(pathname):
     ret, _ = my_splitext(path)
     return ret
 
-
 def my_splitext(pathname):
     """splitext for paths with directories that may contain dots."""
     x = pathname.split(os.extsep)
@@ -2531,3 +2555,4 @@ def parseDict(data, root = None):
             parseList(value,node)
         root.addChild(node)
     return root 
+
